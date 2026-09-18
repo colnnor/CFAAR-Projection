@@ -4,20 +4,25 @@ using System.Collections.Generic;
 using System.Linq;
 using Klak.Spout;
 using Sirenix.OdinInspector;
-using UnityEditor;
 using UnityEngine;
+using UnityEngine.Serialization;
+
+public enum StreamingMode
+{
+    None,
+    Spout
+}
 
 public class CameraRigSetup : MonoBehaviour
 {
+    [FormerlySerializedAs("lockChanges")]
     [Header("Options")]
-    [SerializeField] private bool lockChanges = true;
+    [SerializeField] private bool lockPositionalChanges = true;
     [SerializeField] private bool useRTs;
-    [SerializeField] private bool useSpout;
-    [Header("Physical Walls")]
-    [SerializeField] private bool createPhysicalWalls = false;
-    [SerializeField] private Material physicalWallMaterial;
-    [ShowIf("useSpout")]
-    [SerializeField] private string spoutPrefix = "spout_";
+    [Header("Streaming")]
+    [SerializeField] private StreamingMode streamingMode;
+    [HideIf("streamingMode", StreamingMode.None)]
+    [SerializeField] private string streamingPrefix = "streaming_";
     [Header("Settings")]
     [SerializeField] private int numberOfCameras = 6;
     [SerializeField] private float camRotationOffset = 0f;
@@ -34,117 +39,20 @@ public class CameraRigSetup : MonoBehaviour
     [SerializeField] List<Camera> cameras = new List<Camera>();
     [SerializeField] private List<RenderTexture> rts;
 
-    private const string physicalWallParentName = "WallParent";
-    private List<GameObject> physicalWalls = new();
-    private Transform physicalWallParent;
-
     void OnValidate()
     {
-        if (lockChanges) return;
         if (numberOfCameras < 1)
         {
             numberOfCameras = 1;
         }
 
-        CreateCameras();
-        SetupCameras();
-        SetupSpout();
-        CreatePhysicalWalls();
-        AlignPhysicalWalls();
-    }
-
-    void AlignPhysicalWalls()
-    {
-        if(!createPhysicalWalls) return;
-        for (int i = 0; i < numberOfCameras; i++)
+        if (!lockPositionalChanges)
         {
-            var camera = cameras[i];
-            if (camera == null)
-            {
-                Debug.LogWarning($"Camera at index {i} is null. Skipping alignment for this camera.");
-                continue;
-            }
-
-            var rend = physicalWalls[i].GetOrAddComponent<Renderer>();
-            var meshFilter = physicalWalls[i].GetOrAddComponent<MeshFilter>();
-            
-            var localCorners = camera.GetCameraFrustumCorners(simulatedGizmosWallDistance);
-
-            Mesh planeMesh = new Mesh
-            {
-                vertices = new Vector3[]
-                {
-                    transform.InverseTransformPoint(localCorners[0]),
-                    transform.InverseTransformPoint(localCorners[1]),
-                    transform.InverseTransformPoint(localCorners[2]),
-                    transform.InverseTransformPoint(localCorners[3])
-                },
-                triangles = new int[]
-                {
-                    0, 1, 2,
-                    0, 2, 3
-                }
-            };
-
-            planeMesh.RecalculateNormals();
-            planeMesh.RecalculateBounds();
-            planeMesh.RecalculateTangents();
-            
-            rend.material = physicalWallMaterial;
-            meshFilter.mesh = planeMesh;
-            
-            var meshCollider = physicalWalls[i].GetOrAddComponent<MeshCollider>();
+            CreateCameras();
+            SetupCameras();
         }
 
-    }
-
-    void CreatePhysicalWalls()
-    {
-        if(!createPhysicalWalls)
-        {
-            foreach (var wall in physicalWalls)
-            {
-                if (wall != null)
-                {
-                    DestroyImmediate(wall);
-                }
-            }
-            physicalWallParent.DestroyChildren();
-            physicalWalls.Clear();
-            return;
-        }
-        
-        if (!physicalWallParent && !transform.TryGetSiblingByName(physicalWallParentName, out physicalWallParent))
-        {
-            GameObject wallParentObj = new GameObject(physicalWallParentName);
-            physicalWallParent = wallParentObj.transform;
-            physicalWallParent.SetParent(transform.parent);
-            physicalWallParent.localPosition = transform.localPosition;
-            physicalWallParent.localRotation = transform.localRotation;
-        }
-        
-        if(physicalWallParent == null) return;
-        
-        if(physicalWalls.Count > numberOfCameras)
-        {
-            for (int i = physicalWalls.Count - 1; i >= numberOfCameras; i--)
-            {
-                DestroyImmediate(physicalWalls[i]);
-                physicalWalls.RemoveAt(i);
-            }
-        }
-        else if(physicalWalls.Count < numberOfCameras)
-        {
-            for (int i = physicalWalls.Count; i < numberOfCameras; i++)
-            {
-                GameObject wallObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                wallObj.name = $"Wall_{i}";
-                wallObj.transform.SetParent(physicalWallParent);
-                wallObj.transform.localPosition = Vector3.zero;
-                wallObj.transform.localRotation = Quaternion.identity;
-                physicalWalls.Add(wallObj);
-            }
-        }
+        SetupStreaming();
     }
 
     [Button]
@@ -169,25 +77,35 @@ public class CameraRigSetup : MonoBehaviour
         }
     }
 
-    void SetupSpout()
+    void SetupStreaming()
     {
         foreach (var cam in cameras)
         {
-            if (useSpout)
+            if (cam.TryGetComponent(out SpoutSender spout)) spout.enabled = false;
+
+            var source = cam;
+            var tex = cam.targetTexture;
+            var streamName = $"{streamingPrefix}{cam.name}";
+
+            switch (streamingMode)
             {
-                var sender = cam.gameObject.GetOrAddComponent<SpoutSender>();
-                sender.enabled = true;
-                sender.captureMethod = CaptureMethod.Texture;
-                sender.sourceCamera = cam;
-                sender.sourceTexture = cam.targetTexture;
-                sender.spoutName = $"{spoutPrefix}{cam.name}";
-            }
-            else
-            {
-                if (cam.TryGetComponent(out SpoutSender sender))
-                {
-                    sender.enabled = false;
-                }
+                case StreamingMode.None:
+                    break;
+                case StreamingMode.Spout:
+                    if (!spout)
+                    {
+                        spout = cam.gameObject.AddComponent<SpoutSender>();
+                    }
+
+                    spout.captureMethod = CaptureMethod.Texture;
+                    spout.sourceCamera = source;
+                    spout.sourceTexture = tex;
+                    spout.spoutName = streamName;
+
+                    spout.enabled = true;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
         }
     }
@@ -232,8 +150,6 @@ public class CameraRigSetup : MonoBehaviour
     [Button("Update Cameras")]
     private void SetupCameras()
     {
-        if (lockChanges) return;
-
         float angleStep = (float)maxDegrees / (numberOfCameras);
         float startAngle = -angleStep * (numberOfCameras - 1) / 2;
 
@@ -246,17 +162,11 @@ public class CameraRigSetup : MonoBehaviour
                 cam.name = camName;
             }
 
-            float yRotation = startAngle + (angleStep * i);
-            cam.transform.localRotation = Quaternion.Euler(0, yRotation, 0);
-
-            /*
-            cam.fieldOfView = camFOV;
-            C = total coverage
-            A = angle of the camera
-            N = number of cameras
-            A = C / (N - 1)
-            FOV = C / N + overlap
-            */
+            if (!lockPositionalChanges)
+            {
+                float yRotation = startAngle + (angleStep * i);
+                cam.transform.localRotation = Quaternion.Euler(0, yRotation, 0);
+            }
 
             camFOV = ((float)maxDegrees / (numberOfCameras)) + overlap;
             cam.fieldOfView = camFOV;

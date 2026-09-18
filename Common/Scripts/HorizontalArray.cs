@@ -4,7 +4,7 @@ using UnityEngine;
 public class HorizontalArray : MonoBehaviour
 {
     [SerializeField] private float spacing = 1f;
-
+    [SerializeField] private int count;
     [SerializeField] private List<Material> materials = new List<Material>();
 
     [SerializeField] private ControllableChildGroup childGroup;
@@ -16,7 +16,7 @@ public class HorizontalArray : MonoBehaviour
             childGroup.Initialize(transform);
         }
 
-        childGroup.Update(materials.Count);
+        childGroup.Update(count);
 
         for (int i = 0; i < childGroup.Count; i++)
         {

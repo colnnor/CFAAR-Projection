@@ -21,9 +21,9 @@ public class TrackedObject : MonoBehaviour
     /// <returns></returns>
     public Vector3 MappedPosition()
     {
-        TrackingArea trackingArea = TrackingArea.Instance;
-        float remappedX = Mathf.InverseLerp(trackingArea.TrackingBounds.min.x, trackingArea.TrackingBounds.max.x, position.x);
-        float remappedZ = Mathf.InverseLerp(trackingArea.TrackingBounds.min.z, trackingArea.TrackingBounds.max.z, position.z);
+        ProjectionTrackingArea projectionTrackingArea = ProjectionTrackingArea.Instance;
+        float remappedX = Mathf.InverseLerp(projectionTrackingArea.TrackingBounds.min.x, projectionTrackingArea.TrackingBounds.max.x, position.x);
+        float remappedZ = Mathf.InverseLerp(projectionTrackingArea.TrackingBounds.min.z, projectionTrackingArea.TrackingBounds.max.z, position.z);
         
         return new Vector3(remappedX, transform.position.y, remappedZ);
     }
